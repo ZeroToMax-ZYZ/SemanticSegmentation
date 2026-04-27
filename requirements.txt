@@ -1,0 +1,9 @@
+torch
+torchvision
+tensorboard
+numpy
+opencv-python
+albumentations==1.4.18
+PyYAML>=6.0
+tqdm
+matplotlib

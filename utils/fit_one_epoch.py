@@ -1,142 +1,121 @@
-import torch
-# from utils.logger import logger
-
-from utils.metrics import cal_miou
-
-from utils.logger_tensorb import iter_tensorb_logger, histogram_tensorb_logger
+import time
 from dataclasses import dataclass
 
-import time
+import torch
+import torch.nn.functional as F
 from tqdm import tqdm
-from icecream import ic
-from torch.utils.tensorboard import SummaryWriter
+
+from utils.logger_tensorb import histogram_tensorb_logger, iter_tensorb_logger
+from utils.loss import get_main_logits
+from utils.metrics import SegmentationMetricMeter
+
 
 @dataclass
 class Checkpoint:
     train_miou: float = 0.0
     val_miou: float = 0.0
+    train_pixel_acc: float = 0.0
+    val_pixel_acc: float = 0.0
+    best_val_miou: float = 0.0
+
+
+def _prepare_logits(outputs, labels):
+    logits = get_main_logits(outputs)
+    if logits.shape[-2:] != labels.shape[-2:]:
+        logits = F.interpolate(logits, size=labels.shape[-2:], mode="bilinear", align_corners=False)
+    return logits
 
 
 def fit_train_epoch(epoch, cfg, model, train_loader, loss_fn, optimizer, writer):
-    '''
-    train one epoch
-    '''
     model.train()
 
     train_loss = 0.0
     samples = 0
-    epoch_preds = []
-    epoch_gts = []
+    last_outputs = None
+    meter = SegmentationMetricMeter(
+        num_classes=cfg["num_classes"],
+        ignore_index=cfg.get("ignore_index", 255),
+        ignore_classes=cfg.get("metric_ignore_classes", []),
+    )
 
-    train_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{cfg['epochs']} [Train]")
+    train_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{cfg['epochs']} [Train]")
+    max_batches = cfg.get("debug_max_train_batches")
 
-    for images, labels in train_bar:
-        # iter number
-        iter_num = (epoch * len(train_loader) + train_bar.n)
+    for batch_idx, (images, labels) in enumerate(train_bar):
+        if max_batches is not None and batch_idx >= max_batches:
+            break
+
         bs = images.shape[0]
         samples += bs
 
-        img = images.to(cfg["device"])
-        label = labels.to(cfg["device"])
+        images = images.to(cfg["device"], non_blocking=True)
+        labels = labels.to(cfg["device"], non_blocking=True)
 
-        outputs = model(img)
-        loss, loss_item = loss_fn(outputs, label)
-        iter_tensorb_logger(writer, loss_item, iter_num)
-        # backpropagation
-        optimizer.zero_grad()
+        outputs = model(images)
+        loss, loss_item = loss_fn(outputs, labels)
+
+        optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-        ''' 
-        outputs: (bs, S, S, (B*5+num_classes)) ([64, 7, 7, 30])
-        label: (bs, S, S, (5+num_classes)) ([64, 7, 7, 25])
-        out_decode:  ([64, 7, 7, 2, 25])
-        '''
 
-        if (epoch + 1) % cfg["metric_interval"] == 0:
-            with torch.no_grad():
+        logits = _prepare_logits(outputs, labels)
+        meter.update(logits.detach(), labels.detach())
+        last_outputs = logits.detach()
 
-                out_decode = decode_preds(outputs.detach(), B=2, conf_thresh=0.01)
-                out_boxes = nms(out_decode)
-                epoch_preds.extend([b.detach().cpu() for b in out_boxes])
+        iter_num = epoch * len(train_loader) + batch_idx
+        iter_tensorb_logger(writer, loss_item, iter_num)
 
-                label_decode = decode_labels_list(label.detach())
-                epoch_gts.extend([b.detach().cpu() for b in label_decode])
-                
-        # 恢复到整个bs的损失
         train_loss += loss.item() * bs
+        train_bar.set_postfix(loss=f"{train_loss / max(samples, 1):.4f}")
 
-        # updata bar
-        train_bar.set_postfix(loss=f"{train_loss/(samples):.4f}")
+    if last_outputs is not None:
+        histogram_tensorb_logger(writer, model, last_outputs, epoch)
 
-    # 在 Epoch 训练完所有 batch 后，记录 Histogram
-    # 此时的 outputs 是本 epoch 最后一个 batch 的预测结果
-    histogram_tensorb_logger(writer, model, outputs, epoch)
+    metrics = meter.compute()
+    epoch_loss = train_loss / max(samples, 1)
+    return epoch_loss, metrics
 
-    if (epoch + 1) % cfg["metric_interval"] == 0:
-        metrics_dict = compute_map(epoch_preds, epoch_gts, cfg["num_classes"], metrics_dtype=torch.float32, eps=1e-6)
-    else:
-        metrics_dict = {}
-
-    epoch_loss = train_loss / samples
-
-    return epoch_loss, metrics_dict
 
 def fit_val_epoch(epoch, cfg, model, val_loader, loss_fn):
-    '''
-    return: epoch_loss, epoch_top1(0-1), epoch_top5(0-1)
-    '''
     model.eval()
 
     val_loss = 0.0
     samples = 0
-    epoch_preds = []
-    epoch_gts = []
+    meter = SegmentationMetricMeter(
+        num_classes=cfg["num_classes"],
+        ignore_index=cfg.get("ignore_index", 255),
+        ignore_classes=cfg.get("metric_ignore_classes", []),
+    )
 
-    val_bar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{cfg['epochs']} [Val]")
+    val_bar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{cfg['epochs']} [Val]")
+    max_batches = cfg.get("debug_max_val_batches")
 
     with torch.no_grad():
-        for images, labels in val_bar:
+        for batch_idx, (images, labels) in enumerate(val_bar):
+            if max_batches is not None and batch_idx >= max_batches:
+                break
+
             bs = images.shape[0]
             samples += bs
 
-            img = images.to(cfg["device"])
-            label = labels.to(cfg["device"])
+            images = images.to(cfg["device"], non_blocking=True)
+            labels = labels.to(cfg["device"], non_blocking=True)
 
-            outputs = model(img)
-            loss, _ = loss_fn(outputs, label)
-            if (epoch + 1) % cfg["metric_interval"] == 0:
-                
-                out_decode = decode_preds(outputs.detach(), B=2, conf_thresh=0.01)
-                out_boxes = nms(out_decode)
-                epoch_preds.extend([b.detach().cpu() for b in out_boxes])
+            outputs = model(images)
+            loss, _ = loss_fn(outputs, labels)
 
-                label_decode = decode_labels_list(label.detach())
-                epoch_gts.extend([b.detach().cpu() for b in label_decode])
+            logits = _prepare_logits(outputs, labels)
+            meter.update(logits.detach(), labels.detach())
 
             val_loss += loss.item() * bs
+            val_bar.set_postfix(loss=f"{val_loss / max(samples, 1):.4f}")
 
-            # update bar
-            val_bar.set_postfix(loss=f"{val_loss/(samples):.4f}")
-
-        if (epoch + 1) % cfg["metric_interval"] == 0:
-            metrics_dict = compute_map(epoch_preds, epoch_gts, cfg["num_classes"], metrics_dtype=torch.float32, eps=1e-6)
-        else:
-            metrics_dict = {}
-
-        epoch_loss = val_loss / samples
-
-
-        return epoch_loss, metrics_dict
+    metrics = meter.compute()
+    epoch_loss = val_loss / max(samples, 1)
+    return epoch_loss, metrics
 
 
 def fit_one_epoch(epoch, cfg, model, train_loader, val_loader, loss_fn, optimizer, lr_scheduler, writer, state=None):
-    '''
-    return: train_loss, train_top1(0-1), train_top5(0-1),
-            val_loss, val_top1(0-1), val_top5(0-1)
-    '''
-    # yolov1的学习率策略应当把scheduler放到开头，第一个epoch的lr就应当是warmup的
-    lr_scheduler.step(epoch)
-
     if state is None:
         state = Checkpoint()
 
@@ -145,31 +124,30 @@ def fit_one_epoch(epoch, cfg, model, train_loader, val_loader, loss_fn, optimize
         epoch, cfg, model, train_loader, loss_fn, optimizer, writer
     )
     val_loss, val_metrics = fit_val_epoch(
-        epoch, cfg, model, val_loader, loss_fn,
+        epoch, cfg, model, val_loader, loss_fn
     )
 
+    lr = optimizer.param_groups[0]["lr"]
+    if lr_scheduler is not None:
+        lr_scheduler.step()
 
-    end_time = time.time()
-    epoch_time = end_time - start_time # (s)
-
-
-    if (epoch + 1) % cfg["metric_interval"] == 0:
-        state.train_map50 = train_metrics.get("map50", 0.0)
-        state.train_map50_95 = train_metrics.get("map50-95", 0.0)
-        state.val_map50 = val_metrics.get("map50", 0.0)
-        state.val_map50_95 = val_metrics.get("map50-95", 0.0)
-
+    state.train_miou = train_metrics["miou"]
+    state.train_pixel_acc = train_metrics["pixel_acc"]
+    state.val_miou = val_metrics["miou"]
+    state.val_pixel_acc = val_metrics["pixel_acc"]
 
     metrics = {
         "epoch": epoch + 1,
         "train_loss": train_loss,
-        "train_map50": state.train_map50,
-        "train_map50_95": state.train_map50_95,
+        "train_miou": state.train_miou,
+        "train_pixel_acc": state.train_pixel_acc,
+        "train_mean_acc": train_metrics["mean_acc"],
         "val_loss": val_loss,
-        "val_map50": state.val_map50,
-        "val_map50_95": state.val_map50_95,
-        "lr": optimizer.param_groups[0]["lr"],
-        "epoch_time": epoch_time,
-        "is_best": None
+        "val_miou": state.val_miou,
+        "val_pixel_acc": state.val_pixel_acc,
+        "val_mean_acc": val_metrics["mean_acc"],
+        "lr": lr,
+        "epoch_time": time.time() - start_time,
+        "is_best": None,
     }
     return metrics, state

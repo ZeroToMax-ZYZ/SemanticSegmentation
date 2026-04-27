@@ -1,43 +1,76 @@
-import numpy as np
 import torch
-import torch.nn.functional as F
 
-def cal_miou(pred, label, num_classes):
-    '''
-    输入参数：
-    pred: 模型的预测输出。
-    通常是一个形状为 (Batch_Size, Num_Classes, H, W) 的张量（Tensor），
-    包含每个类别的置信度（Logits）。
-    
-    label: 真实标签（Ground Truth）。形状为 (Batch_Size, H, W) 的张量，
-    每个像素值是对应类别的索引（$0, 1, 2, ...$）。
-    
-    num_classes: 整数，表示总类别数（包含背景）。
-    
-    输出结果：
-    miou: 一个浮点数，代表除背景外所有类别的平均 IoU。
-    ious: 一个列表，包含每个特定类别（不含背景）的 IoU 计算结果。
-    当前计算miou忽略了背景，因为考虑背景会让miou虚高
-    '''
-    # pred = pred.cpu()
-    # label = label.cpu()
-    pred = pred.argmax(dim=1)
-    # print('pred shape:', pred.shape)
-    # print('label shape:', label.shape)
-    ious = []
-    for i in range(1, num_classes):
-        pred_i = (pred == i)
-        label_i = (label == i)
-        
-        TP = (pred_i & label_i).sum().item()
-        TP_FP_FN = (pred_i | label_i).sum().item()
-        
-        if TP_FP_FN == 0:
-            continue
-        
-        iou = TP / TP_FP_FN
-        # print(f"class {i} IoU: {iou:.4f}")
-        ious.append(iou)
-    miou = np.mean(ious)
-    return miou, ious
 
+class SegmentationMetricMeter:
+    def __init__(self, num_classes, ignore_index=255, ignore_classes=None):
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+        self.ignore_classes = set(ignore_classes or [])
+        self.confusion_matrix = torch.zeros((num_classes, num_classes), dtype=torch.float64)
+
+    def reset(self):
+        self.confusion_matrix.zero_()
+
+    @torch.no_grad()
+    def update(self, logits, target):
+        if logits.shape[-2:] != target.shape[-2:]:
+            logits = torch.nn.functional.interpolate(
+                logits,
+                size=target.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        pred = torch.argmax(logits, dim=1).detach().cpu().view(-1)
+        target = target.detach().cpu().view(-1)
+
+        valid = (target != self.ignore_index) & (target >= 0) & (target < self.num_classes)
+        if not valid.any():
+            return
+
+        target = target[valid].long()
+        pred = pred[valid].long().clamp(0, self.num_classes - 1)
+        encoded = target * self.num_classes + pred
+        hist = torch.bincount(encoded, minlength=self.num_classes ** 2)
+        self.confusion_matrix += hist.reshape(self.num_classes, self.num_classes).double()
+
+    def compute(self):
+        hist = self.confusion_matrix
+        tp = torch.diag(hist)
+        gt = hist.sum(dim=1)
+        pred = hist.sum(dim=0)
+        union = gt + pred - tp
+
+        valid_classes = union > 0
+        for class_index in self.ignore_classes:
+            if 0 <= class_index < self.num_classes:
+                valid_classes[class_index] = False
+
+        iou = torch.zeros(self.num_classes, dtype=torch.float64)
+        iou[union > 0] = tp[union > 0] / union[union > 0]
+        miou = iou[valid_classes].mean().item() if valid_classes.any() else 0.0
+
+        class_acc = torch.zeros(self.num_classes, dtype=torch.float64)
+        class_acc[gt > 0] = tp[gt > 0] / gt[gt > 0]
+        valid_acc = gt > 0
+        for class_index in self.ignore_classes:
+            if 0 <= class_index < self.num_classes:
+                valid_acc[class_index] = False
+        mean_acc = class_acc[valid_acc].mean().item() if valid_acc.any() else 0.0
+
+        total = hist.sum()
+        pixel_acc = tp.sum().item() / total.item() if total > 0 else 0.0
+
+        return {
+            "miou": miou,
+            "pixel_acc": pixel_acc,
+            "mean_acc": mean_acc,
+            "class_iou": iou.tolist(),
+        }
+
+
+def cal_miou(pred, label, num_classes, ignore_index=255):
+    meter = SegmentationMetricMeter(num_classes=num_classes, ignore_index=ignore_index)
+    meter.update(pred, label)
+    metrics = meter.compute()
+    return metrics["miou"], metrics["class_iou"]

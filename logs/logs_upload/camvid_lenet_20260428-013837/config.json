@@ -1,0 +1,52 @@
+{
+    "device": "cuda",
+    "seed": 42,
+    "exp_name": "camvid_lenet_20260428-013837",
+    "append_exp_time": true,
+    "exp_note": "CamVid semantic segmentation",
+    "model_name": "LeNet",
+    "in_channels": 3,
+    "num_classes": 32,
+    "data_root": "CamVid",
+    "image_size": [
+        227,
+        227
+    ],
+    "ignore_index": 255,
+    "ignore_void": true,
+    "void_class_index": null,
+    "metric_ignore_classes": [
+        30
+    ],
+    "batch_size": 8,
+    "epochs": 80,
+    "save_interval": 10,
+    "num_workers": 0,
+    "persistent_workers": false,
+    "pin_memory": true,
+    "debug_mode": null,
+    "debug_max_train_samples": 16,
+    "debug_max_val_samples": 8,
+    "debug_max_train_batches": null,
+    "debug_max_val_batches": null,
+    "loss": {
+        "type": "CrossEntropyLoss",
+        "ce_weight": 1.0,
+        "dice_weight": 0.0
+    },
+    "optimizer": {
+        "type": "SGD",
+        "lr": 0.01,
+        "momentum": 0.9,
+        "weight_decay": 0.0005,
+        "nesterov": true,
+        "lr_scheduler": {
+            "type": "PolyLR",
+            "power": 0.9,
+            "min_lr": 1e-05
+        }
+    },
+    "exp_time": "20260428-013837",
+    "GPU_model": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "cfg_path": "train_cfg/CamVid/cfg.yaml"
+}
