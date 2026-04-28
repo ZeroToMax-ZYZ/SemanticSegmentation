@@ -5,7 +5,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 # trans conv --> 1*1 conv
 class AlexNet(nn.Module):
+    """A lightweight AlexNet-style FCN segmentation model."""
+
     def __init__(self, in_channels=3, out_channels=21):
+        """Initialize convolutional encoder and upsampling classifier.
+
+        Args:
+            in_channels (int): Number of input image channels.
+            out_channels (int): Number of output classes.
+
+        Returns:
+            None.
+        """
         super().__init__() 
         self.conv1 = nn.Conv2d(in_channels, 96, kernel_size=11,stride=4)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
@@ -30,6 +41,14 @@ class AlexNet(nn.Module):
         self.classifier = nn.Conv2d(256, out_channels, kernel_size=1 )
         
     def forward(self, data):
+        """Run a forward pass.
+
+        Args:
+            data (Tensor): Input image batch with shape ``[B, C, H, W]``.
+
+        Returns:
+            Tensor: Segmentation logits.
+        """
         x = F.relu(self.conv1(data))
         x = self.pool1(x)
         x = F.relu(self.conv2(x))

@@ -4,6 +4,15 @@ from utils.loss import build_loss_fn
 
 
 def build_optimizer(model, cfg):
+    """Build an optimizer from the training config.
+
+    Args:
+        model (nn.Module): Model whose parameters will be optimized.
+        cfg (dict): Resolved training config containing ``optimizer`` settings.
+
+    Returns:
+        torch.optim.Optimizer: Configured optimizer.
+    """
     opt_cfg = cfg["optimizer"]
     optimizer_type = opt_cfg.get("type", "SGD")
     lr = opt_cfg.get("lr", 1e-2)
@@ -36,6 +45,15 @@ def build_optimizer(model, cfg):
 
 
 def build_lr_scheduler(optimizer, cfg):
+    """Build a learning-rate scheduler from the training config.
+
+    Args:
+        optimizer (Optimizer): Optimizer to schedule.
+        cfg (dict): Resolved training config containing scheduler settings.
+
+    Returns:
+        _LRScheduler | None: Configured scheduler, or None when disabled.
+    """
     sch_cfg = cfg["optimizer"].get("lr_scheduler")
     if not sch_cfg:
         return None
@@ -66,6 +84,7 @@ def build_lr_scheduler(optimizer, cfg):
         min_factor = min_lr / base_lr if base_lr > 0 else 0.0
 
         def lr_lambda(epoch):
+            """Return the multiplicative LR factor for LambdaLR."""
             if warmup_epochs > 0 and epoch < warmup_epochs:
                 progress = float(epoch + 1) / float(warmup_epochs)
                 return warmup_start_factor + (1.0 - warmup_start_factor) * progress

@@ -11,6 +11,16 @@ MODEL_REGISTRY = {
 
 
 def auto_model(model_name, in_channels=3, out_channels=32):
+    """Instantiate a segmentation model by registry name.
+
+    Args:
+        model_name (str): Name in ``MODEL_REGISTRY``.
+        in_channels (int): Number of input image channels.
+        out_channels (int): Number of output semantic classes.
+
+    Returns:
+        nn.Module: Instantiated segmentation model.
+    """
     model_class = MODEL_REGISTRY.get(model_name)
     if model_class is None:
         available = ", ".join(sorted(MODEL_REGISTRY))
@@ -26,6 +36,15 @@ def auto_model(model_name, in_channels=3, out_channels=32):
 
 
 def build_model(cfg):
+    """Build the model defined by the training config.
+
+    Args:
+        cfg (dict): Resolved training config with ``model_name``,
+            ``in_channels``, and ``num_classes``.
+
+    Returns:
+        nn.Module: Configured segmentation model.
+    """
     return auto_model(
         model_name=cfg.get("model_name", "LeNet"),
         in_channels=cfg.get("in_channels", 3),

@@ -18,6 +18,25 @@ def build_camvid_dataset(
     void_class_index=None,
     return_paths=False,
 ):
+    """Build a CamVid Dataset instance and attach transforms.
+
+    Args:
+        root (str): CamVid root directory.
+        split (str): Dataset split name.
+        image_size (int | tuple[int, int]): Transform output size as
+            ``height, width``.
+        transform (callable | None): Optional transform. If None, a split-aware
+            default transform is created.
+        ignore_index (int): Label value ignored by the loss.
+        ignore_void (bool): Whether Void pixels are mapped to ignore_index.
+        void_class_index (int | None): Optional configured Void class id.
+        return_paths (bool): Whether dataset samples include source paths.
+
+    Returns:
+        CamVidDataset: Dataset with transform attached.
+    """
+    # Build the dataset before transforms so the class_dict.csv can be used to
+    # infer the Void class id for augmentation padding.
     dataset = CamVidDataset(
         root=root,
         split=split,
@@ -44,6 +63,17 @@ def build_camvid_dataset(
 
 
 def _resolve_mask_fill_value(dataset, ignore_index, ignore_void, void_class_index=None):
+    """Resolve the label value used to fill mask borders during augmentation.
+
+    Args:
+        dataset (CamVidDataset): Dataset that may expose ``void_class_index``.
+        ignore_index (int): Ignored label id.
+        ignore_void (bool): Whether Void should be ignored by loss/metrics.
+        void_class_index (int | None): Configured Void class index.
+
+    Returns:
+        int: Label id used by Albumentations when new mask pixels are created.
+    """
     if ignore_void:
         return ignore_index
     if void_class_index is not None:
@@ -67,6 +97,26 @@ def build_camvid_dataloader(
     void_class_index=None,
     persistent_workers=False,
 ):
+    """Build a DataLoader for one CamVid split.
+
+    Args:
+        root (str): CamVid root directory.
+        split (str): Split name.
+        image_size (int | tuple[int, int]): Transform output size.
+        batch_size (int): Batch size.
+        num_workers (int): Number of DataLoader workers.
+        shuffle (bool | None): Shuffle flag. Defaults to True for train only.
+        pin_memory (bool): Whether to use pinned memory.
+        drop_last (bool | None): Drop incomplete final batch. Defaults to True
+            for train only.
+        ignore_index (int): Ignored label id.
+        ignore_void (bool): Whether to ignore Void pixels.
+        void_class_index (int | None): Optional configured Void class index.
+        persistent_workers (bool): Keep workers alive between epochs.
+
+    Returns:
+        DataLoader: DataLoader for the requested split.
+    """
     dataset = build_camvid_dataset(
         root=root,
         split=split,
@@ -106,6 +156,23 @@ def build_camvid_dataloaders(
     include_test=False,
     persistent_workers=False,
 ):
+    """Build train/val and optional test DataLoaders for CamVid.
+
+    Args:
+        root (str): CamVid root directory.
+        image_size (int | tuple[int, int]): Transform output size.
+        batch_size (int): Batch size shared by all loaders.
+        num_workers (int): Number of DataLoader workers.
+        pin_memory (bool): Whether to use pinned memory.
+        ignore_index (int): Ignored label id.
+        ignore_void (bool): Whether to ignore Void pixels.
+        void_class_index (int | None): Optional configured Void class index.
+        include_test (bool): Whether to include the test loader.
+        persistent_workers (bool): Keep workers alive between epochs.
+
+    Returns:
+        dict[str, DataLoader]: Loader dictionary keyed by split name.
+    """
     loaders = {
         "train": build_camvid_dataloader(
             root=root,
@@ -151,6 +218,18 @@ def build_camvid_dataloaders(
 
 
 def _limit_dataset(dataloader, max_samples, shuffle=None, drop_last=None):
+    """Wrap an existing DataLoader's dataset with a small Subset.
+
+    Args:
+        dataloader (DataLoader): Original loader.
+        max_samples (int | None): Maximum sample count. None keeps the loader.
+        shuffle (bool | None): Shuffle flag for the new loader.
+        drop_last (bool | None): Drop-last flag for the new loader.
+
+    Returns:
+        DataLoader: Limited loader, or the original loader when max_samples is
+        None.
+    """
     if max_samples is None:
         return dataloader
 
@@ -169,6 +248,16 @@ def _limit_dataset(dataloader, max_samples, shuffle=None, drop_last=None):
 
 
 def build_dataset(cfg):
+    """Build project DataLoaders from the global training config.
+
+    Args:
+        cfg (dict): Resolved training config.
+
+    Returns:
+        tuple[DataLoader, DataLoader, Dataset, Dataset] | dict[str, DataLoader]:
+        By default returns train loader, val loader, train dataset, and val
+        dataset. Returns the loader dict when ``return_loader_dict=True``.
+    """
     loaders = build_camvid_dataloaders(
         root=cfg.get("data_root", cfg.get("root", "CamVid")),
         image_size=cfg.get("image_size", (360, 480)),

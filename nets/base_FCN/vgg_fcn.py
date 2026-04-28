@@ -6,8 +6,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MyVgg(nn.Module):
+    """A VGG-style FCN segmentation model with one large deconvolution head."""
 
     def __init__(self, nums_output):
+        """Initialize VGG-like convolution blocks and classifier.
+
+        Args:
+            nums_output (int): Number of output semantic classes.
+
+        Returns:
+            None.
+        """
 
         super().__init__()
 
@@ -36,6 +45,14 @@ class MyVgg(nn.Module):
 
     
     def forward(self, data):
+        """Run a forward pass.
+
+        Args:
+            data (Tensor): Input image batch with shape ``[B, 3, H, W]``.
+
+        Returns:
+            Tensor: Segmentation logits.
+        """
 
         conv1 = F.relu(self.conv1(data))
         conv2 = F.relu(self.conv2(conv1))

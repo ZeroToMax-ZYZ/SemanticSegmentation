@@ -21,6 +21,15 @@ CSV_FIELDS = [
 
 
 def save_csv(metrics, csv_path):
+    """Append one epoch of metrics to a CSV file.
+
+    Args:
+        metrics (dict): Epoch metrics produced by ``fit_one_epoch``.
+        csv_path (str | Path): Destination CSV path.
+
+    Returns:
+        None.
+    """
     if not os.path.exists(csv_path):
         with open(csv_path, "w", encoding="utf-8") as f:
             f.write(",".join(CSV_FIELDS) + "\n")
@@ -39,6 +48,16 @@ def save_csv(metrics, csv_path):
 
 
 def plot_metrics(cfg, csv_path, plt_path):
+    """Plot loss and segmentation metrics from the metrics CSV.
+
+    Args:
+        cfg (dict): Training config. Currently kept for future plot options.
+        csv_path (str | Path): Source metrics CSV path.
+        plt_path (str | Path): Destination image path.
+
+    Returns:
+        None.
+    """
     plt.rcParams["font.family"] = "serif"
 
     rows = []
@@ -87,6 +106,17 @@ def plot_metrics(cfg, csv_path, plt_path):
 
 
 def save_logger(model, metrics, cfg, state):
+    """Write all per-epoch logging artifacts.
+
+    Args:
+        model (nn.Module): Model to checkpoint.
+        metrics (dict): Epoch metrics.
+        cfg (dict): Resolved training config.
+        state (Checkpoint): Current training state.
+
+    Returns:
+        None.
+    """
     base_logs_path = os.path.join("logs", "logs_upload", cfg["exp_name"])
     base_weights_path = os.path.join("logs", "logs_weights", cfg["exp_name"])
 
@@ -100,6 +130,17 @@ def save_logger(model, metrics, cfg, state):
 
 
 def save_model(model, cfg, model_path, metrics):
+    """Save best, interval, and last model weights.
+
+    Args:
+        model (nn.Module): Model to save.
+        cfg (dict): Training config with ``save_interval``.
+        model_path (str | Path): Directory for weight files.
+        metrics (dict): Epoch metrics containing ``is_best`` and ``val_miou``.
+
+    Returns:
+        None.
+    """
     val_miou = metrics["val_miou"]
 
     if metrics["is_best"]:
@@ -116,6 +157,14 @@ def save_model(model, cfg, model_path, metrics):
 
 
 def save_config(cfg):
+    """Persist the resolved config and create log directories.
+
+    Args:
+        cfg (dict): Resolved training config.
+
+    Returns:
+        None.
+    """
     base_logs_path = os.path.join("logs", "logs_upload", cfg["exp_name"])
     base_weights_path = os.path.join("logs", "logs_weights", cfg["exp_name"], "weights")
 

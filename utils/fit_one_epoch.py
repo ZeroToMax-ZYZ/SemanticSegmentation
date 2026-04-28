@@ -12,6 +12,8 @@ from utils.metrics import SegmentationMetricMeter
 
 @dataclass
 class Checkpoint:
+    """In-memory best/latest metric state for the current training run."""
+
     train_miou: float = 0.0
     val_miou: float = 0.0
     train_pixel_acc: float = 0.0
@@ -20,6 +22,15 @@ class Checkpoint:
 
 
 def _prepare_logits(outputs, labels):
+    """Extract and resize logits to match the label resolution.
+
+    Args:
+        outputs (Tensor | dict | tuple | list): Raw model outputs.
+        labels (Tensor): Integer labels with shape ``[B, H, W]``.
+
+    Returns:
+        Tensor: Logits with spatial size matching ``labels``.
+    """
     logits = get_main_logits(outputs)
     if logits.shape[-2:] != labels.shape[-2:]:
         logits = F.interpolate(logits, size=labels.shape[-2:], mode="bilinear", align_corners=False)
@@ -27,6 +38,20 @@ def _prepare_logits(outputs, labels):
 
 
 def fit_train_epoch(epoch, cfg, model, train_loader, loss_fn, optimizer, writer):
+    """Train the model for one epoch.
+
+    Args:
+        epoch (int): Zero-based epoch index.
+        cfg (dict): Resolved training config.
+        model (nn.Module): Segmentation model.
+        train_loader (DataLoader): Training DataLoader.
+        loss_fn (Callable): Loss function returning ``(loss, loss_items)``.
+        optimizer (Optimizer): Optimizer.
+        writer (SummaryWriter): TensorBoard writer.
+
+    Returns:
+        tuple[float, dict]: Average train loss and metric dictionary.
+    """
     model.train()
 
     train_loss = 0.0
@@ -51,6 +76,8 @@ def fit_train_epoch(epoch, cfg, model, train_loader, loss_fn, optimizer, writer)
         images = images.to(cfg["device"], non_blocking=True)
         labels = labels.to(cfg["device"], non_blocking=True)
 
+        # Forward, backward, and optimizer step are kept explicit so the loop is
+        # easy to extend with AMP or gradient accumulation later.
         outputs = model(images)
         loss, loss_item = loss_fn(outputs, labels)
 
@@ -77,6 +104,18 @@ def fit_train_epoch(epoch, cfg, model, train_loader, loss_fn, optimizer, writer)
 
 
 def fit_val_epoch(epoch, cfg, model, val_loader, loss_fn):
+    """Evaluate the model for one epoch.
+
+    Args:
+        epoch (int): Zero-based epoch index.
+        cfg (dict): Resolved training config.
+        model (nn.Module): Segmentation model.
+        val_loader (DataLoader): Validation DataLoader.
+        loss_fn (Callable): Loss function returning ``(loss, loss_items)``.
+
+    Returns:
+        tuple[float, dict]: Average validation loss and metric dictionary.
+    """
     model.eval()
 
     val_loss = 0.0
@@ -116,6 +155,23 @@ def fit_val_epoch(epoch, cfg, model, val_loader, loss_fn):
 
 
 def fit_one_epoch(epoch, cfg, model, train_loader, val_loader, loss_fn, optimizer, lr_scheduler, writer, state=None):
+    """Run one complete train+validation epoch.
+
+    Args:
+        epoch (int): Zero-based epoch index.
+        cfg (dict): Resolved training config.
+        model (nn.Module): Segmentation model.
+        train_loader (DataLoader): Training DataLoader.
+        val_loader (DataLoader): Validation DataLoader.
+        loss_fn (Callable): Loss function.
+        optimizer (Optimizer): Optimizer.
+        lr_scheduler (_LRScheduler | None): Learning-rate scheduler.
+        writer (SummaryWriter): TensorBoard writer.
+        state (Checkpoint | None): Previous metric state.
+
+    Returns:
+        tuple[dict, Checkpoint]: Epoch metrics and updated state.
+    """
     if state is None:
         state = Checkpoint()
 

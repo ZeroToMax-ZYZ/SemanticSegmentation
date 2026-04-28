@@ -24,6 +24,14 @@ DEFAULT_CFG_PATH = Path("train_cfg") / "CamVid" / "cfg.yaml"
 
 
 def seed_everything(seed):
+    """Set the random seed for Python, NumPy, and PyTorch.
+
+    Args:
+        seed (int): Seed value used by all supported random generators.
+
+    Returns:
+        None.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -32,6 +40,15 @@ def seed_everything(seed):
 
 
 def deep_update(base, updates):
+    """Recursively merge an override dictionary into a base dictionary.
+
+    Args:
+        base (dict): Original config dictionary.
+        updates (dict): Values that should override the base config.
+
+    Returns:
+        dict: A deep-copied merged config. The input dictionaries are not mutated.
+    """
     result = deepcopy(base)
     for key, value in updates.items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
@@ -42,6 +59,19 @@ def deep_update(base, updates):
 
 
 def load_cfg_from_file(cfg_path):
+    """Load a training config from a YAML or JSON file.
+
+    Args:
+        cfg_path (str | Path): Path to the config file.
+
+    Returns:
+        dict: Parsed config dictionary.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the file extension is unsupported.
+        TypeError: If the parsed config is not a dictionary.
+    """
     cfg_path = Path(cfg_path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config file not found: {cfg_path}")
@@ -64,6 +94,14 @@ def load_cfg_from_file(cfg_path):
 
 
 def parse_override_value(value):
+    """Parse a command-line override value with YAML semantics.
+
+    Args:
+        value (str): Raw string value from ``--opts``.
+
+    Returns:
+        Any: Parsed value, such as int, float, bool, list, dict, None, or str.
+    """
     try:
         return yaml.safe_load(value)
     except yaml.YAMLError:
@@ -71,6 +109,16 @@ def parse_override_value(value):
 
 
 def set_by_dotted_key(cfg, dotted_key, value):
+    """Set a nested dictionary value using a dotted key.
+
+    Args:
+        cfg (dict): Dictionary to mutate.
+        dotted_key (str): Key path such as ``optimizer.lr``.
+        value (Any): Value to set at the target key.
+
+    Returns:
+        None.
+    """
     keys = dotted_key.split(".")
     if any(not key for key in keys):
         raise ValueError(f"Invalid override key: {dotted_key}")
@@ -84,6 +132,14 @@ def set_by_dotted_key(cfg, dotted_key, value):
 
 
 def parse_cli_overrides(opts):
+    """Convert command-line ``--opts`` items into a nested override dict.
+
+    Args:
+        opts (list[str] | None): Items in ``key=value`` format.
+
+    Returns:
+        dict: Nested overrides that can be merged into the config.
+    """
     overrides = {}
     for item in opts or []:
         if "=" not in item:
@@ -94,6 +150,14 @@ def parse_cli_overrides(opts):
 
 
 def parse_args():
+    """Parse training command-line arguments.
+
+    Args:
+        None.
+
+    Returns:
+        argparse.Namespace: Parsed arguments with cfg, opts, and smoke_test.
+    """
     parser = argparse.ArgumentParser(description="Train a semantic segmentation model.")
     parser.add_argument(
         "--cfg",
@@ -115,7 +179,15 @@ def parse_args():
 
 
 def manual_overrides():
-    """Edit this dict for quick local overrides. Nested keys are merged."""
+    """Return local, source-controlled manual overrides.
+
+    Args:
+        None.
+
+    Returns:
+        dict: Optional overrides. Keep this empty for normal training and use
+        ``--opts`` for temporary command-line changes.
+    """
     return {
         # Examples:
         # "epochs": 1,
@@ -126,6 +198,15 @@ def manual_overrides():
 
 
 def finalize_runtime_config(cfg):
+    """Fill runtime-dependent config fields.
+
+    Args:
+        cfg (dict): Config loaded from file and overrides.
+
+    Returns:
+        dict: Config with exp_time, device, GPU_model, pin_memory, and exp_name
+        resolved.
+    """
     cfg = deepcopy(cfg)
     exp_time = cfg.get("exp_time") or time.strftime("%Y%m%d-%H%M%S", time.localtime())
     cfg["exp_time"] = exp_time
@@ -150,6 +231,16 @@ def finalize_runtime_config(cfg):
 
 
 def base_config(cfg_path=None, overrides=None):
+    """Build the final training config from file and overrides.
+
+    Args:
+        cfg_path (str | Path | None): Config path. Defaults to TRAIN_CFG env var
+            or DEFAULT_CFG_PATH.
+        overrides (dict | None): Programmatic overrides, usually parsed from CLI.
+
+    Returns:
+        dict: Fully resolved training config.
+    """
     cfg_path = cfg_path or os.getenv("TRAIN_CFG", str(DEFAULT_CFG_PATH))
     cfg = load_cfg_from_file(cfg_path)
     cfg = deep_update(cfg, manual_overrides())
@@ -161,6 +252,15 @@ def base_config(cfg_path=None, overrides=None):
 
 
 def apply_runtime_overrides(cfg, smoke_test=False):
+    """Apply quick runtime overrides that should not live in the config file.
+
+    Args:
+        cfg (dict): Config dictionary to mutate.
+        smoke_test (bool): Whether to force a tiny one-epoch smoke test run.
+
+    Returns:
+        None.
+    """
     if smoke_test or os.getenv("SEMSEG_SMOKE_TEST", "0") == "1":
         cfg["debug_mode"] = "smoke"
         cfg["epochs"] = 1
@@ -174,12 +274,29 @@ def apply_runtime_overrides(cfg, smoke_test=False):
 
 
 def _unwrap_dataset(dataset):
+    """Get the underlying dataset from nested torch Subset wrappers.
+
+    Args:
+        dataset (Dataset): Dataset or wrapper dataset.
+
+    Returns:
+        Dataset: The innermost dataset.
+    """
     while hasattr(dataset, "dataset"):
         dataset = dataset.dataset
     return dataset
 
 
 def train(args=None):
+    """Run the full training workflow.
+
+    Args:
+        args (argparse.Namespace | None): Parsed command-line args. If None,
+            arguments are parsed inside the function.
+
+    Returns:
+        None.
+    """
     args = args or parse_args()
     cfg = base_config(cfg_path=args.cfg, overrides=parse_cli_overrides(args.opts))
     apply_runtime_overrides(cfg, smoke_test=args.smoke_test)
@@ -188,6 +305,7 @@ def train(args=None):
     if cfg["device"] == "cuda":
         torch.backends.cudnn.benchmark = True
 
+    # Build data before the model so the class count can be read from class_dict.csv.
     train_loader, val_loader, train_dataset, val_dataset = build_dataset(cfg)
     real_dataset = _unwrap_dataset(train_dataset)
     cfg["num_classes"] = getattr(real_dataset, "num_classes", cfg["num_classes"])
@@ -197,6 +315,7 @@ def train(args=None):
     writer = SummaryWriter(log_dir=tb_path)
     init_tb_layout(writer)
 
+    # Build all training components from the resolved config.
     model = build_model(cfg).to(cfg["device"])
     optimizer = build_optimizer(model, cfg=cfg)
     lr_scheduler = build_lr_scheduler(optimizer, cfg=cfg)
@@ -207,6 +326,7 @@ def train(args=None):
     state = None
     best_val_miou = 0.0
     for epoch in range(cfg["epochs"]):
+        # One epoch returns scalar metrics and a lightweight in-memory state.
         metrics, state = fit_one_epoch(
             epoch,
             cfg,
@@ -221,6 +341,7 @@ def train(args=None):
         )
 
         if metrics["val_miou"] > best_val_miou:
+            # Mark the current epoch as best before save_logger writes weights.
             best_val_miou = metrics["val_miou"]
             state.best_val_miou = best_val_miou
             metrics["is_best"] = True
