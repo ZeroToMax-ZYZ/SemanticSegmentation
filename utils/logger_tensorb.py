@@ -6,16 +6,15 @@ from torchvision.utils import make_grid
 
 
 def denormalize(tensor, mean=None, std=None):
-    """Undo image normalization for visualization.
+    """反归一化，用于可视化时还原图片原始像素范围
 
     Args:
-        tensor (Tensor): Image tensor with shape ``[C, H, W]`` or
-            ``[B, C, H, W]``.
-        mean (tuple[float, ...] | None): Channel means used in preprocessing.
-        std (tuple[float, ...] | None): Channel stds used in preprocessing.
+        tensor: 图片tensor，shape [C, H, W] 或 [B, C, H, W]
+        mean: 各通道均值，默认ImageNet均值
+        std: 各通道标准差，默认ImageNet标准差
 
     Returns:
-        Tensor: Denormalized tensor in the same shape as input.
+        反归一化后的tensor
     """
     if mean is None:
         mean = (0.485, 0.456, 0.406)
@@ -32,13 +31,13 @@ def denormalize(tensor, mean=None, std=None):
 
 
 def flatten_config(cfg):
-    """Convert a nested config into TensorBoard hparams-compatible values.
+    """将嵌套配置展平为TensorBoard hparams兼容的格式
 
     Args:
-        cfg (dict): Resolved training config.
+        cfg: 训练配置字典
 
     Returns:
-        dict: Flat dictionary where unsupported values are stringified.
+        展平后的字典，不支持的类型转为字符串
     """
     flat_cfg = {}
     for key, value in cfg.items():
@@ -50,13 +49,13 @@ def flatten_config(cfg):
 
 
 def _unwrap_dataset(dataset):
-    """Get the innermost dataset from wrappers such as Subset.
+    """获取最内层的数据集（剥除Subset等包装器）
 
     Args:
-        dataset (Dataset): Dataset or wrapper.
+        dataset: Dataset或其包装器
 
     Returns:
-        Dataset: Unwrapped dataset.
+        最内层的Dataset
     """
     while hasattr(dataset, "dataset"):
         dataset = dataset.dataset
@@ -64,15 +63,14 @@ def _unwrap_dataset(dataset):
 
 
 def _palette_from_dataset(dataset, device):
-    """Create a color palette tensor for mask visualization.
+    """从数据集获取调色板，用于mask可视化着色
 
     Args:
-        dataset (Dataset): Dataset exposing ``rgb_values`` and optionally
-            ``num_classes``.
-        device (torch.device): Device for the returned palette tensor.
+        dataset: Dataset，期望有rgb_values属性
+        device: 返回tensor的设备
 
     Returns:
-        Tensor: Palette with shape ``[num_classes, 3]`` and values in [0, 1].
+        shape [num_classes, 3] 的调色板tensor，值范围[0, 1]
     """
     real_dataset = _unwrap_dataset(dataset)
     rgb_values = getattr(real_dataset, "rgb_values", None)
@@ -83,15 +81,15 @@ def _palette_from_dataset(dataset, device):
 
 
 def _mask_to_color(mask, palette, ignore_index=255):
-    """Convert an integer mask to a color image tensor.
+    """将整数mask转为彩色图片tensor
 
     Args:
-        mask (Tensor): Integer mask with shape ``[H, W]``.
-        palette (Tensor): Class color palette with shape ``[C, 3]``.
-        ignore_index (int): Ignored label id rendered as black.
+        mask: 整数mask，shape [H, W]
+        palette: 类别调色板，shape [C, 3]
+        ignore_index: 忽略的标签值，渲染为黑色
 
     Returns:
-        Tensor: Color mask with shape ``[3, H, W]``.
+        shape [3, H, W] 的彩色mask
     """
     mask = mask.to(torch.long)
     safe_mask = mask.clamp(0, palette.shape[0] - 1)
@@ -103,15 +101,15 @@ def _mask_to_color(mask, palette, ignore_index=255):
 
 
 def _sample_overlay_grid(dataset, count, cfg):
-    """Build a TensorBoard grid containing image, mask, and overlay triplets.
+    """采样若干图片，生成 [原图 | mask | 叠加] 的网格图
 
     Args:
-        dataset (Dataset): Dataset to sample from.
-        count (int): Number of samples.
-        cfg (dict): Training config containing ``ignore_index``.
+        dataset: 数据集
+        count: 采样数量
+        cfg: 训练配置，包含ignore_index
 
     Returns:
-        Tensor | None: Grid image tensor, or None when the dataset is empty.
+        网格图tensor，数据集为空时返回None
     """
     palette = _palette_from_dataset(dataset, device=torch.device("cpu"))
     ignore_index = cfg.get("ignore_index", 255)
@@ -121,7 +119,7 @@ def _sample_overlay_grid(dataset, count, cfg):
         image, mask = dataset[idx]
         image = denormalize(image).clamp(0, 1).cpu()
         color_mask = _mask_to_color(mask.cpu(), palette, ignore_index=ignore_index)
-        # Overlay makes label alignment issues visible at a glance.
+        # 半透明叠加，方便直观检查标注对齐
         overlay = (0.6 * image + 0.4 * color_mask).clamp(0, 1)
         images.extend([image, color_mask, overlay])
 
@@ -131,21 +129,19 @@ def _sample_overlay_grid(dataset, count, cfg):
 
 
 def base_tensorb_logger(writer, train_dataset, val_dataset, model, cfg, train_img_count=5, val_img_count=5, epoch=0):
-    """Write static TensorBoard artifacts before training starts.
+    """训练开始前写入静态TensorBoard内容：模型图、样本可视化、配置
 
     Args:
-        writer (SummaryWriter): TensorBoard writer.
-        train_dataset (Dataset): Training dataset or subset.
-        val_dataset (Dataset): Validation dataset or subset.
-        model (nn.Module): Model used for graph logging.
-        cfg (dict): Resolved training config.
-        train_img_count (int): Number of train samples to visualize.
-        val_img_count (int): Number of validation samples to visualize.
-        epoch (int): Global step for initial images/text.
-
-    Returns:
-        None.
+        writer: TensorBoard SummaryWriter
+        train_dataset: 训练集
+        val_dataset: 验证集
+        model: 模型（用于记录计算图）
+        cfg: 训练配置
+        train_img_count: 训练集可视化样本数
+        val_img_count: 验证集可视化样本数
+        epoch: 起始step
     """
+    # 记录模型计算图
     image, _ = train_dataset[0]
     graph_input = image.unsqueeze(0).to(cfg["device"])
     try:
@@ -153,6 +149,7 @@ def base_tensorb_logger(writer, train_dataset, val_dataset, model, cfg, train_im
     except Exception as exc:
         writer.add_text("Graph/warning", f"add_graph failed: {exc}", epoch)
 
+    # 记录训练集/验证集样本可视化
     train_grid = _sample_overlay_grid(train_dataset, train_img_count, cfg)
     if train_grid is not None:
         writer.add_image("Train/Image_Mask_Overlay", train_grid, global_step=epoch)
@@ -161,24 +158,22 @@ def base_tensorb_logger(writer, train_dataset, val_dataset, model, cfg, train_im
     if val_grid is not None:
         writer.add_image("Val/Image_Mask_Overlay", val_grid, global_step=epoch)
 
+    # 记录超参数配置
     cfg_json_str = json.dumps(flatten_config(cfg), indent=4, ensure_ascii=False)
     writer.add_text("Config/Hyperparameters", f"```json\n{cfg_json_str}\n```", epoch)
 
 
 def init_tb_layout(writer):
-    """Register custom TensorBoard scalar layouts.
+    """注册自定义TensorBoard标量布局，将相关指标归到同一面板
 
     Args:
-        writer (SummaryWriter): TensorBoard writer.
-
-    Returns:
-        None.
+        writer: TensorBoard SummaryWriter
     """
     layout = {
         "Segmentation": {
             "Loss": [
                 "Multiline",
-                ["metrics/train_loss", "metrics/val_loss", "iter_loss/ce_loss", "iter_loss/total_loss"],
+                ["metrics/train_loss", "metrics/val_loss", "iter_loss/ce_loss"],
             ],
             "IoU": [
                 "Multiline",
@@ -194,15 +189,12 @@ def init_tb_layout(writer):
 
 
 def epoch_tensorb_logger(writer, metrics, epoch):
-    """Write epoch-level scalar metrics to TensorBoard.
+    """记录epoch级别的标量指标到TensorBoard
 
     Args:
-        writer (SummaryWriter): TensorBoard writer.
-        metrics (dict): Epoch metrics.
-        epoch (int): Zero-based epoch index.
-
-    Returns:
-        None.
+        writer: TensorBoard SummaryWriter
+        metrics: epoch指标字典
+        epoch: 当前epoch索引
     """
     writer.add_scalar("metrics/train_loss", metrics["train_loss"], epoch)
     writer.add_scalar("metrics/val_loss", metrics["val_loss"], epoch)
@@ -221,15 +213,12 @@ def epoch_tensorb_logger(writer, metrics, epoch):
 
 
 def iter_tensorb_logger(writer, loss_item, iteration):
-    """Write iteration-level loss values to TensorBoard.
+    """记录iter级别的loss到TensorBoard
 
     Args:
-        writer (SummaryWriter): TensorBoard writer.
-        loss_item (dict[str, float | Tensor]): Loss components.
-        iteration (int): Global training iteration.
-
-    Returns:
-        None.
+        writer: TensorBoard SummaryWriter
+        loss_item: loss分量字典，如 {"ce_loss": 0.5}
+        iteration: 全局iteration计数
     """
     for key, value in loss_item.items():
         if torch.is_tensor(value):
@@ -238,26 +227,23 @@ def iter_tensorb_logger(writer, loss_item, iteration):
 
 
 def histogram_tensorb_logger(writer, model, last_outputs, epoch, debug_mode=False):
-    """Write representative weights, gradients, and predictions as histograms.
+    """记录权重、梯度和预测分布的直方图到TensorBoard
 
     Args:
-        writer (SummaryWriter): TensorBoard writer.
-        model (nn.Module): Model whose parameters are logged.
-        last_outputs (Tensor | None): Last logits batch from the epoch.
-        epoch (int): Zero-based epoch index.
-        debug_mode (bool): If True, log more layers.
-
-    Returns:
-        None.
+        writer: TensorBoard SummaryWriter
+        model: 模型
+        last_outputs: 最后一个batch的logits，用于记录预测分布
+        epoch: 当前epoch索引
+        debug_mode: True时记录所有层，False时只记录首/中/末三层
     """
+    # 筛选需要记录的参数（有梯度且维度>1，即跳过bias和norm的1D参数）
     params = [
         (name, param)
         for name, param in model.named_parameters()
         if param.requires_grad and param.dim() > 1
     ]
     if not debug_mode and len(params) > 3:
-        # Normal mode logs first/middle/last parameter tensors to keep event
-        # files small while still exposing gradient health.
+        # 正常模式只取首/中/末三个，减小event文件体积
         mid = len(params) // 2
         params = [params[0], params[mid], params[-1]]
 
@@ -266,6 +252,7 @@ def histogram_tensorb_logger(writer, model, last_outputs, epoch, debug_mode=Fals
         if param.grad is not None:
             writer.add_histogram(f"Gradients/{name}", param.grad, epoch)
 
+    # 记录预测logits和类别分布
     if last_outputs is not None:
         writer.add_histogram("Predictions/logits", last_outputs.detach(), epoch)
         writer.add_histogram("Predictions/classes", last_outputs.detach().argmax(dim=1), epoch)

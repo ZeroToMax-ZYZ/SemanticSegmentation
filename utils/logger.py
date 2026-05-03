@@ -5,6 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 
+# CSV中每行记录的字段顺序
 CSV_FIELDS = [
     "epoch",
     "train_loss",
@@ -21,14 +22,11 @@ CSV_FIELDS = [
 
 
 def save_csv(metrics, csv_path):
-    """Append one epoch of metrics to a CSV file.
+    """将一个epoch的指标追加写入CSV文件
 
     Args:
-        metrics (dict): Epoch metrics produced by ``fit_one_epoch``.
-        csv_path (str | Path): Destination CSV path.
-
-    Returns:
-        None.
+        metrics: fit_one_epoch返回的指标字典
+        csv_path: CSV文件路径
     """
     if not os.path.exists(csv_path):
         with open(csv_path, "w", encoding="utf-8") as f:
@@ -48,15 +46,12 @@ def save_csv(metrics, csv_path):
 
 
 def plot_metrics(cfg, csv_path, plt_path):
-    """Plot loss and segmentation metrics from the metrics CSV.
+    """从CSV读取指标，绘制loss和分割指标曲线并保存
 
     Args:
-        cfg (dict): Training config. Currently kept for future plot options.
-        csv_path (str | Path): Source metrics CSV path.
-        plt_path (str | Path): Destination image path.
-
-    Returns:
-        None.
+        cfg: 训练配置（预留扩展）
+        csv_path: 指标CSV路径
+        plt_path: 图片保存路径
     """
     plt.rcParams["font.family"] = "serif"
 
@@ -80,6 +75,7 @@ def plot_metrics(cfg, csv_path, plt_path):
 
     plt.figure(figsize=(14, 6))
 
+    # 左图：loss曲线
     plt.subplot(1, 2, 1)
     plt.plot(epochs, train_losses, label="Train Loss", marker="x", markersize=4, linewidth=1)
     plt.plot(epochs, val_losses, label="Val Loss", marker="x", markersize=4, linewidth=1)
@@ -89,6 +85,7 @@ def plot_metrics(cfg, csv_path, plt_path):
     plt.grid(True, linestyle="--", alpha=0.7)
     plt.legend()
 
+    # 右图：mIoU和Pixel Accuracy曲线
     plt.subplot(1, 2, 2)
     plt.plot(epochs, train_miou, label="Train mIoU", marker="x", markersize=4, linewidth=1)
     plt.plot(epochs, val_miou, label="Val mIoU", marker="x", markersize=4, linewidth=1)
@@ -106,16 +103,13 @@ def plot_metrics(cfg, csv_path, plt_path):
 
 
 def save_logger(model, metrics, cfg, state):
-    """Write all per-epoch logging artifacts.
+    """保存每个epoch的日志产物：CSV指标、曲线图、模型权重
 
     Args:
-        model (nn.Module): Model to checkpoint.
-        metrics (dict): Epoch metrics.
-        cfg (dict): Resolved training config.
-        state (Checkpoint): Current training state.
-
-    Returns:
-        None.
+        model: 模型
+        metrics: 本epoch指标字典
+        cfg: 训练配置
+        state: Checkpoint状态
     """
     base_logs_path = os.path.join("logs", "logs_upload", cfg["exp_name"])
     base_weights_path = os.path.join("logs", "logs_weights", cfg["exp_name"])
@@ -130,40 +124,37 @@ def save_logger(model, metrics, cfg, state):
 
 
 def save_model(model, cfg, model_path, metrics):
-    """Save best, interval, and last model weights.
+    """保存模型权重：最优模型、定期保存、最新模型
 
     Args:
-        model (nn.Module): Model to save.
-        cfg (dict): Training config with ``save_interval``.
-        model_path (str | Path): Directory for weight files.
-        metrics (dict): Epoch metrics containing ``is_best`` and ``val_miou``.
-
-    Returns:
-        None.
+        model: 模型
+        cfg: 训练配置，包含save_interval
+        model_path: 权重保存目录
+        metrics: 指标字典，包含is_best和val_miou
     """
     val_miou = metrics["val_miou"]
 
+    # 保存最优模型
     if metrics["is_best"]:
         torch.save(model.state_dict(), os.path.join(model_path, "best_model.pth"))
         print(f"Best model saved with Val mIoU: {val_miou:.4f}")
 
+    # 按间隔定期保存
     if (metrics["epoch"] % cfg["save_interval"]) == 0:
         torch.save(
             model.state_dict(),
             os.path.join(model_path, f"model_epoch_{metrics['epoch']}_valmiou_{val_miou:.4f}.pth"),
         )
 
+    # 始终保存最新模型
     torch.save(model.state_dict(), os.path.join(model_path, "last_model.pth"))
 
 
 def save_config(cfg):
-    """Persist the resolved config and create log directories.
+    """持久化训练配置，并创建日志目录
 
     Args:
-        cfg (dict): Resolved training config.
-
-    Returns:
-        None.
+        cfg: 训练配置字典
     """
     base_logs_path = os.path.join("logs", "logs_upload", cfg["exp_name"])
     base_weights_path = os.path.join("logs", "logs_weights", cfg["exp_name"], "weights")

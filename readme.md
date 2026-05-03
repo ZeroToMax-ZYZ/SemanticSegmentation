@@ -1,58 +1,38 @@
 
 ## 配置文件
+
 默认配置文件：
 
 ```text
-train_cfg/CamVid/cfg.yaml
+train_cfg/CamVid/LeNet_cfg.yaml
 ```
 
-可以通过 `--cfg` 指定其他 YAML/JSON 配置文件，也可以通过 `--opts` 临时覆盖参数。
+可以通过 `--cfg` 指定其他 YAML 配置文件。如需快速修改参数，直接编辑 `train.py` 中的 `code_overrides` 字典即可。
 
-## 全量训练
-
-使用默认配置进行完整训练：
+## 训练
 
 ```bash
-python train.py --cfg train_cfg/CamVid/cfg.yaml
+python train.py --cfg train_cfg/CamVid/LeNet_cfg.yaml
 ```
 
-训练产物会保存到：
+不传 `--cfg` 时默认使用 `train_cfg/CamVid/LeNet_cfg.yaml`。
+
+训练产物保存到：
 
 ```text
-logs/logs_upload/<exp_name>/
-logs/logs_weights/<exp_name>/
-logs/logs_tensorboard/<exp_name>/
-```
-
-## 快速测试训练
-
-推荐用 smoke test 确认数据、模型、loss、日志链路是否能跑通：
-
-```bash
-python train.py --cfg train_cfg/CamVid/cfg.yaml --smoke-test
-```
-
-也可以手动覆盖配置做一个小样本调试：
-
-```bash
-python train.py --cfg train_cfg/CamVid/cfg.yaml --opts epochs=1 batch_size=2 debug_mode=debug debug_max_train_samples=4 debug_max_val_samples=2
+logs/logs_upload/<exp_name>/       # CSV指标、曲线图、config.json
+logs/logs_weights/<exp_name>/      # 模型权重（best/last/定期保存）
+logs/logs_tensorboard/<exp_name>/  # TensorBoard日志
 ```
 
 ## TensorBoard
 
-启动 TensorBoard：
-
 ```bash
 tensorboard --logdir logs/logs_tensorboard
-tensorboard --logdir logs/logs_tensorboard --port 6007
 ```
 
-## 常用命令行覆盖示例
-
+## 数据增强可视化
 ```bash
-python train.py --cfg train_cfg/CamVid/cfg.yaml --opts optimizer.lr=0.001 epochs=20
-```
+python script/visualize_dataset.py --cfg train_cfg/CamVid/LeNet_cfg.yaml --num 6 --split val
 
-```bash
-python train.py --cfg train_cfg/CamVid/cfg.yaml --opts image_size=[360,480] batch_size=4
 ```

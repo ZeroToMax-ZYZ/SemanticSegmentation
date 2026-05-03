@@ -1,13 +1,13 @@
 {
     "device": "cuda",
     "seed": 42,
-    "exp_name": "camvid_lenet_20260428-013837",
+    "exp_name": "camvid_lenet_20260503-224300",
     "append_exp_time": true,
     "exp_note": "CamVid semantic segmentation",
     "model_name": "LeNet",
     "in_channels": 3,
-    "num_classes": 32,
-    "data_root": "CamVid",
+    "num_classes": 11,
+    "data_root": "D:/1AAAAAstudy/python_base/pytorch/all_dataset/semantic_segmentation/ready_dataset/seg_2d_datasets/CamVid_11class",
     "image_size": [
         227,
         227
@@ -15,14 +15,12 @@
     "ignore_index": 255,
     "ignore_void": true,
     "void_class_index": null,
-    "metric_ignore_classes": [
-        30
-    ],
-    "batch_size": 8,
+    "metric_ignore_classes": [],
+    "batch_size": 64,
     "epochs": 80,
     "save_interval": 10,
     "num_workers": 0,
-    "persistent_workers": false,
+    "persistent_workers": true,
     "pin_memory": true,
     "debug_mode": null,
     "debug_max_train_samples": 16,
@@ -30,9 +28,10 @@
     "debug_max_train_batches": null,
     "debug_max_val_batches": null,
     "loss": {
-        "type": "CrossEntropyLoss",
+        "use_class_weights": true,
+        "class_weights": null,
         "ce_weight": 1.0,
-        "dice_weight": 0.0
+        "dice_weight": 0.3
     },
     "optimizer": {
         "type": "SGD",
@@ -46,7 +45,7 @@
             "min_lr": 1e-05
         }
     },
-    "exp_time": "20260428-013837",
+    "exp_time": "20260503-224300",
     "GPU_model": "NVIDIA GeForce RTX 3080 Laptop GPU",
-    "cfg_path": "train_cfg/CamVid/cfg.yaml"
+    "cfg_path": "train_cfg/CamVid/LeNet_cfg.yaml"
 }
