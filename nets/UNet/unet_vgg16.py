@@ -1,8 +1,12 @@
+import os
 
 import torch
 import torch.nn as nn
 
-import torch.nn as nn
+# 预训练权重默认路径：项目根目录/pre_weights/vgg16_encoder.pth
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DEFAULT_WEIGHTS_PATH = os.path.join(_PROJECT_ROOT, "pre_weights", "vgg16_encoder.pth")
+
 
 class VGG(nn.Module):
     def __init__(self, features, num_classes=1000):
@@ -53,10 +57,46 @@ cfgs = {
 }
 
 
-def VGG16(in_channels, pretrained, **kwargs):
-    model = VGG(make_layers(cfgs["D"], batch_norm = False, in_channels = in_channels), **kwargs)
+def VGG16(in_channels, pretrained, weights_path=None, **kwargs):
+    """构建 VGG16 编码器，可选加载 ImageNet 预训练权重。
+
+    Args:
+        in_channels: 输入通道数
+        pretrained: 是否加载预训练权重
+        weights_path: 权重文件路径，None 时使用默认路径 pre_weights/vgg16_encoder.pth
+
+    Returns:
+        VGG 模型（仅 features 部分）
+    """
+    model = VGG(make_layers(cfgs["D"], batch_norm=False, in_channels=in_channels), **kwargs)
     del model.avgpool
     del model.classifier
+
+    if pretrained:
+        path = weights_path or _DEFAULT_WEIGHTS_PATH
+        if not os.path.exists(path):
+            print(f"[信息] 未检测到预训练权重: {path}")
+            print("[信息] 正在自动下载，请稍候...")
+            from pre_weights.script.download_vgg16 import download_vgg16_encoder
+            download_vgg16_encoder(save_path=path)
+
+        if os.path.exists(path):
+            state_dict = torch.load(path, map_location="cpu", weights_only=True)
+            # 兼容 in_channels != 3 的情况：仅加载 shape 匹配的层
+            model_state = model.features.state_dict()
+            matched = {}
+            skipped = []
+            for k, v in state_dict.items():
+                if k in model_state and v.shape == model_state[k].shape:
+                    matched[k] = v
+                else:
+                    skipped.append(k)
+            model.features.load_state_dict(matched, strict=False)
+            print(f"[信息] 成功加载预训练权重: {path}")
+            print(f"[信息] 已加载 {len(matched)}/{len(state_dict)} 层参数")
+            if skipped:
+                print(f"[信息] 跳过 {len(skipped)} 层（shape 不匹配或 in_channels 不同）")
+
     return model
 
 
@@ -77,10 +117,10 @@ class unetUp(nn.Module):
         return outputs
 
 class UNet_vgg16(nn.Module):
-    def __init__(self, in_channels=3, out_channels=21, pretrained = False, backbone ='vgg'):
+    def __init__(self, in_channels=3, out_channels=21, pretrained=True, backbone='vgg', pretrained_weights_path=None):
         super().__init__()
         if backbone == 'vgg':
-            self.vgg    = VGG16(in_channels, pretrained = pretrained)
+            self.vgg = VGG16(in_channels, pretrained=pretrained, weights_path=pretrained_weights_path)
             in_filters  = [192, 384, 768, 1024]
         else:
             raise ValueError('Unsupported backbone - `{}`, Use vgg, resnet50.'.format(backbone))
@@ -116,7 +156,9 @@ class UNet_vgg16(nn.Module):
 
 
 if __name__ == '__main__':
-    model = UNet_vgg16(in_channels=3, out_channels=21)
+    # pretrained=True: 加载预训练权重（自动下载）
+    # pretrained=False: 跳过预训练，随机初始化
+    model = UNet_vgg16(in_channels=3, out_channels=21, pretrained=True)
     test_input = torch.randn(1, 3, 448, 448)
     test_output = model(test_input)
     print(test_output.shape)
