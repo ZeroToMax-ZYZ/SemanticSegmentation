@@ -1,22 +1,23 @@
-import torch
-from torch.utils.data import Dataset
+"""CamVid 11类语义分割数据集。
+
+mask文件名 = 图片文件名去掉扩展名 + '_L.png'
+"""
 
 import os
 import json
-import numpy as np
-import cv2
+
+from dataset.base_dataset import BaseSegDataset
 
 
-class CamVid_11_Dataset(Dataset):
-    '''
-    读取11类的camvid数据集，具体名称映射在json文件
-    mask文件名 = 图片文件名去掉扩展名 + '_L.png'
-    '''
+class CamVid_11_Dataset(BaseSegDataset):
+    """读取11类的CamVid数据集。
+
+    目录结构: split/ 存放图片, split_labels/ 存放mask
+    mask命名规则: stem + '_L.png'（如 0001TP_009210.png -> 0001TP_009210_L.png）
+    """
+
     def __init__(self, img_dir, mask_dir, json_file=None, transform=None):
-        self.img_dir, self.mask_dir = img_dir, mask_dir
-        self.transform = transform
-
-        # 加载类别映射
+        # 先设置子类特有属性（基类 __init__ 会调用 collate_data）
         self.ignore_index = 255
         self.num_classes = 11
         # CamVid 11类调色板（用于TensorBoard可视化）
@@ -38,42 +39,14 @@ class CamVid_11_Dataset(Dataset):
                 mapping = json.load(f)
             self.ignore_index = mapping.get('ignore_index', 255)
 
-        # 收集并校验数据对
-        self.list_imgs, self.list_labels = self.collate_data(img_dir, mask_dir)
-
-    def __len__(self):
-        return len(self.list_imgs)
-
-    def __getitem__(self, idx):
-        img_path = self.list_imgs[idx]
-        mask_path = self.list_labels[idx]
-
-        # 读取图片和mask
-        image = cv2.imread(img_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
-        # albumentations数据增强（同时处理image和mask）
-        if self.transform is not None:
-            augmented = self.transform(image=image, mask=mask)
-            image = augmented['image']
-            mask = augmented['mask']
-
-        # 转tensor（如果没有transform则手动转换）
-        if not isinstance(image, torch.Tensor):
-            image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32) / 255.0)
-        if isinstance(mask, torch.Tensor):
-            mask = mask.long()
-        else:
-            mask = torch.from_numpy(mask.astype(np.int64))
-
-        return image, mask
+        # 调用基类构造（会触发 collate_data）
+        super().__init__(img_dir, mask_dir, transform=transform)
 
     def collate_data(self, img_dir, mask_dir):
-        '''
-        收集图片和mask路径，校验一一对应关系
+        """收集图片和mask路径，校验一一对应关系。
+
         mask命名规则: stem + '_L.png'，如 0001TP_009210.png -> 0001TP_009210_L.png
-        '''
+        """
         list_imgs, list_labels = [], []
 
         img_files = sorted(os.listdir(img_dir))
